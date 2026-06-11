@@ -272,6 +272,13 @@ async function sbAuth(e,p,m="login"){
   const u=m==="login"?`${SB}/auth/v1/token?grant_type=password`:`${SB}/auth/v1/signup`;
   return(await fetch(u,{method:"POST",headers:{"Content-Type":"application/json",apikey:KEY},body:JSON.stringify({email:e,password:p})})).json();
 }
+async function sbRefresh(rt){
+  try{
+    const r=await fetch(`${SB}/auth/v1/token?grant_type=refresh_token`,{method:"POST",headers:{"Content-Type":"application/json",apikey:KEY},body:JSON.stringify({refresh_token:rt})});
+    const d=await r.json();
+    return d.access_token?d:null;
+  }catch{return null;}
+}
 async function sbGet(path,t){
   const r=await fetch(`${SB}/rest/v1/${path}`,{headers:hdrs(t)});
   if(!r.ok)throw new Error(await r.text());
@@ -351,6 +358,9 @@ function fromDB(row){
     sessionsPerWeek:row.sessions_per_week,sessionDuration:row.session_duration,
     primaryGoal:row.primary_goal,secondaryGoal:row.secondary_goal,
     location:row.location,status:row.status,
+    profession:row.profession||"",motivationLevel:row.motivation_level||7,
+    priorExperience:row.prior_experience||"",preferredTime:row.preferred_time||"",
+    mainConcern:row.main_challenge||"",dailyGoal:row.daily_goal||"",worthIt:row.worth_it||"",
     anamnesis:{
       hypertension:!!a.hypertension,diabetes:!!a.diabetes,highCholesterol:!!a.high_cholesterol,
       heartProblems:!!a.heart_problems,osteoporosis:!!a.osteoporosis,arthrosis:!!a.arthrosis,
@@ -393,7 +403,7 @@ function LineGraph({data,dataKey,color,unit}){
   );
 }
 
-const EMPTY={name:"",age:"",sex:"Feminino",phone:"",email:"",height:"",weight:"",targetWeight:"",profession:"",sessionsPerWeek:3,sessionDuration:60,primaryGoal:"",secondaryGoal:"",motivationLevel:7,location:"Ginásio",anamnesis:{hypertension:false,diabetes:false,highCholesterol:false,heartProblems:false,osteoporosis:false,arthrosis:false,hernia:false,lowerBackPain:false,kneePain:false,shoulderPain:false,hadSurgery:false,recentFalls:false,dizziness:false,shortBreath:false,chestPain:false,medication:"",medicalClearance:false,forbiddenExercises:"",biggestFear:""}};
+const EMPTY={name:"",age:"",sex:"Feminino",phone:"",email:"",height:"",weight:"",targetWeight:"",profession:"",sessionsPerWeek:3,sessionDuration:60,primaryGoal:"Emagrecer com saúde",secondaryGoal:"",motivationLevel:7,location:"Ginásio",priorExperience:"",preferredTime:"",mainConcern:"",dailyGoal:"",worthIt:"",anamnesis:{hypertension:false,diabetes:false,highCholesterol:false,heartProblems:false,osteoporosis:false,arthrosis:false,hernia:false,lowerBackPain:false,kneePain:false,shoulderPain:false,hadSurgery:false,recentFalls:false,dizziness:false,shortBreath:false,chestPain:false,medication:"",medicalClearance:false,forbiddenExercises:"",biggestFear:""}};
 
 const GOALS=[
   {v:"Emagrecer com saúde",i:"⚖️",d:"Perder gordura de forma sustentável"},
@@ -517,9 +527,11 @@ function App(){
       const rows=await sbGet(SEL,t||tok);
       setStudents(rows.map(fromDB));
     }catch(e){
-      // Token expirado — limpa sessão
+      // Token expirado — tenta renovar com o refresh_token antes de deslogar
       if(String(e).includes("401")||String(e).includes("JWT")){
-        saveSess(null);setView("login");setStudents([]);
+        const nsess=sess?.refresh_token?await sbRefresh(sess.refresh_token):null;
+        if(nsess)saveSess(nsess); // tok muda → useEffect recarrega
+        else{saveSess(null);setView("login");setStudents([]);}
       } else setErr(e.message);
     }
     setLoading(false);
@@ -531,7 +543,11 @@ function App(){
       // Valida se o token ainda é válido fazendo um pedido leve
       sbGet("igfit_students?select=id&limit=1",tok)
         .then(()=>load(tok))
-        .catch(()=>{saveSess(null);setView("login");});
+        .catch(async()=>{
+          const nsess=sess?.refresh_token?await sbRefresh(sess.refresh_token):null;
+          if(nsess)saveSess(nsess); // tok muda → useEffect corre de novo
+          else{saveSess(null);setView("login");}
+        });
     }
   },[tok]);
 
@@ -551,7 +567,7 @@ function App(){
     setLoading(true);setErr("");
     try{
       const risk=ns.anamnesis.chestPain||ns.anamnesis.heartProblems||ns.anamnesis.dizziness||ns.anamnesis.recentFalls||ns.anamnesis.shortBreath;
-      const[row]=await sbPost("igfit_students",{trainer_id:sess.user.id,name:ns.name,age:parseInt(ns.age)||null,sex:ns.sex,phone:ns.phone||null,email:ns.email||null,height:parseFloat(ns.height)||null,weight:parseFloat(ns.weight)||null,target_weight:parseFloat(ns.targetWeight)||null,profession:ns.profession||null,sessions_per_week:ns.sessionsPerWeek,session_duration:ns.sessionDuration,primary_goal:ns.primaryGoal,secondary_goal:ns.secondaryGoal,motivation_level:ns.motivationLevel,location:ns.location,status:risk?"atenção":"avaliação pendente"},tok);
+      const[row]=await sbPost("igfit_students",{trainer_id:sess.user.id,name:ns.name,age:parseInt(ns.age)||null,sex:ns.sex,phone:ns.phone||null,email:ns.email||null,height:parseFloat(ns.height)||null,weight:parseFloat(ns.weight)||null,target_weight:parseFloat(ns.targetWeight)||null,profession:ns.profession||null,sessions_per_week:ns.sessionsPerWeek,session_duration:ns.sessionDuration,primary_goal:ns.primaryGoal,secondary_goal:ns.secondaryGoal,motivation_level:ns.motivationLevel,location:ns.location,prior_experience:ns.priorExperience||null,preferred_time:ns.preferredTime||null,main_challenge:ns.mainConcern||null,daily_goal:ns.dailyGoal||null,worth_it:ns.worthIt||null,status:risk?"atenção":"avaliação pendente"},tok);
       await sbPost("igfit_anamnesis",{student_id:row.id,hypertension:ns.anamnesis.hypertension,diabetes:ns.anamnesis.diabetes,high_cholesterol:ns.anamnesis.highCholesterol,heart_problems:ns.anamnesis.heartProblems,osteoporosis:ns.anamnesis.osteoporosis,arthrosis:ns.anamnesis.arthrosis,hernia:ns.anamnesis.hernia,lower_back_pain:ns.anamnesis.lowerBackPain,knee_pain:ns.anamnesis.kneePain,shoulder_pain:ns.anamnesis.shoulderPain,had_surgery:ns.anamnesis.hadSurgery,recent_falls:ns.anamnesis.recentFalls,dizziness:ns.anamnesis.dizziness,short_breath:ns.anamnesis.shortBreath,chest_pain:ns.anamnesis.chestPain,medication:ns.anamnesis.medication||null,medical_clearance:ns.anamnesis.medicalClearance,forbidden_exercises:ns.anamnesis.forbiddenExercises||null,biggest_fear:ns.anamnesis.biggestFear||null},tok);
       await sbPost("igfit_alerts",{student_id:row.id,type:risk?"danger":"info",message:risk?"Fatores de risco — validar com médico":"Avaliação inicial pendente"},tok);
       await load();setSid(row.id);setTab("overview");setView("student");setStep(0);setNs(EMPTY);
@@ -575,7 +591,7 @@ function App(){
     const a=s.anamnesis;
     const cond=CONDS.filter(([k])=>a[k]).map(([,l])=>l).join(", ");
     const imc=s.weight&&s.height?((h=>s.weight/(h>3?h/100:h)**2)(s.height)).toFixed(1):"N/D";
-    const prompt=`Diagnóstico inicial para:\n${s.name} | ${s.age}a | ${s.sex} | IMC: ${imc}\nPeso: ${s.weight}kg → alvo ${s.targetWeight}kg | Altura: ${s.height}cm\n${s.location} | ${s.sessionsPerWeek}x/sem | ${s.sessionDuration}min\nObjetivos: ${s.primaryGoal} + ${s.secondaryGoal}\nCondições: ${cond||"Nenhuma"} | Med: ${a.medication||"Nenhuma"}\nProibidos: ${a.forbiddenExercises||"Nenhum"} | Medo: ${a.biggestFear||"N/A"} | Autor.médica: ${a.medicalClearance?"Sim":"Não"}\n\nSeccções (usa ## com emoji):\n## 📋 Perfil Físico\n## 🎯 Prioridades (lista numerada, máx 5)\n## ⚠️ Pontos de Atenção (por condição de saúde)\n## ✅ Exercícios Recomendados\n## ❌ Exercícios a Evitar\n## 📈 Estratégia 4 Semanas (semana 1-2 e 3-4)\n## 🏆 Metas Realistas (1, 3 e 6 meses)\n## 🔒 Regras de Segurança (3-5 regras)\n\nTom: treinador experiente a falar com colega. Direto, humano, sem jargão excessivo. Máx 600 palavras.`;
+    const prompt=`Diagnóstico inicial para:\n${s.name} | ${s.age}a | ${s.sex} | IMC: ${imc}\nPeso: ${s.weight}kg → alvo ${s.targetWeight}kg | Altura: ${s.height}cm\n${s.location} | ${s.sessionsPerWeek}x/sem | ${s.sessionDuration}min\nObjetivos: ${s.primaryGoal} + ${s.secondaryGoal}\nCondições: ${cond||"Nenhuma"} | Med: ${a.medication||"Nenhuma"}\nProibidos: ${a.forbiddenExercises||"Nenhum"} | Medo: ${a.biggestFear||"N/A"} | Autor.médica: ${a.medicalClearance?"Sim":"Não"}\nMotivação: ${s.motivationLevel||7}/10 | Experiência: ${s.priorExperience||"N/D"} | Preocupação: ${s.mainConcern||"N/D"}\nObjetivos dia-a-dia: ${s.dailyGoal||"N/D"} | Nota do aluno: ${s.worthIt||"N/D"}\n\nSeccções (usa ## com emoji):\n## 📋 Perfil Físico\n## 🎯 Prioridades (lista numerada, máx 5)\n## ⚠️ Pontos de Atenção (por condição de saúde)\n## ✅ Exercícios Recomendados\n## ❌ Exercícios a Evitar\n## 📈 Estratégia 4 Semanas (semana 1-2 e 3-4)\n## 🏆 Metas Realistas (1, 3 e 6 meses)\n## 🔒 Regras de Segurança (3-5 regras)\n\nTom: treinador experiente a falar com colega. Direto, humano, sem jargão excessivo. Máx 600 palavras.`;
     const r=await callAI(prompt,tok,{age:s.age,goals:s.primaryGoal+" "+s.secondaryGoal,conditions:cond});
     // Apaga TODOS os alertas antigos deste aluno antes de criar novos
     try{
@@ -720,6 +736,12 @@ Usa exatamente esta estrutura:
         primary_goal:editData.primaryGoal||s.primaryGoal,
         secondary_goal:editData.secondaryGoal||s.secondaryGoal,
         location:editData.location||s.location,
+        motivation_level:parseInt(editData.motivationLevel)||s.motivationLevel||7,
+        prior_experience:editData.priorExperience??s.priorExperience??null,
+        preferred_time:editData.preferredTime??s.preferredTime??null,
+        main_challenge:editData.mainConcern??s.mainConcern??null,
+        daily_goal:editData.dailyGoal??s.dailyGoal??null,
+        worth_it:editData.worthIt??s.worthIt??null,
       })});
       // Actualiza anamnese se editada
       if(editData.anamnesisEdited){
@@ -777,6 +799,8 @@ Usa exatamente esta estrutura:
   if(view==="dashboard"){
     const allA=students.flatMap(st=>st.alerts.filter(a=>a.type!=="info").map(a=>({...a,n:st.name,id:st.id})));
     const initials=n=>n.split(" ").slice(0,2).map(x=>x[0]||"").join("").toUpperCase();
+    const todayISO=(d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`)(new Date());
+    const aulasHoje=students.reduce((a,x)=>a+(x.classLogs||[]).filter(l=>l.rawDate===todayISO).length,0);
     return(
       <div style={{minHeight:"100vh",background:"#f8fafc"}}>
         <div style={{background:"#fff",borderBottom:"1px solid #e2e8f0",position:"sticky",top:0,zIndex:10,boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
@@ -797,7 +821,7 @@ Usa exatamente esta estrutura:
             <div style={{fontSize:11,fontWeight:700,color:GR,letterSpacing:".5px",marginBottom:6}}>RESUMO DO DIA — {new Date().toLocaleDateString("pt-PT",{weekday:"long",day:"2-digit",month:"long"}).toUpperCase()}</div>
             <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
               {[
-                {l:"Aulas hoje",v:students.reduce((a,x)=>a+(x.sessionsPerWeek>=5?1:x.sessionsPerWeek>=3?0:0),0)||"—",i:"🗓️"},
+                {l:"Aulas hoje",v:aulasHoje||"—",i:"🗓️"},
                 {l:"Alunos ativos",v:students.filter(x=>["ativo","em evolução"].includes(x.status)).length,i:"👥"},
                 {l:"Alertas",v:students.reduce((a,x)=>a+x.alerts.filter(al=>al.type!=="info").length,0),i:"⚠️"},
                 {l:"Total alunos",v:students.length,i:"📋"},
@@ -1140,7 +1164,7 @@ Usa exatamente esta estrutura:
                   {editSection==="motivacao"&&(
                     <div>
                       <div style={{marginBottom:16}}><label style={LBL}>Nível de motivação: <strong style={{color:G}}>{editData.motivationLevel||s.motivationLevel||7}/10</strong></label><input type="range" min={1} max={10} value={editData.motivationLevel||s.motivationLevel||7} onChange={e=>setEditData(p=>({...p,motivationLevel:parseInt(e.target.value)}))} style={{width:"100%"}}/></div>
-                      {[["priorExperience","Experiência anterior"],["preferredTime","Horário preferido"],["mainConcern","Maior preocupação"],["worthIt","Informação importante para o treinador"]].map(([k,l])=>(
+                      {[["priorExperience","Experiência anterior"],["preferredTime","Horário preferido"],["mainConcern","Maior preocupação"],["dailyGoal","Objetivos do dia a dia"],["worthIt","Informação importante para o treinador"]].map(([k,l])=>(
                         <div key={k} style={{marginBottom:12}}><label style={LBL}>{l}</label><textarea style={{...INP,height:52,resize:"vertical"}} value={editData[k]||(s[k]||"")} onChange={e=>setEditData(p=>({...p,[k]:e.target.value}))}/></div>
                       ))}
                     </div>
@@ -1378,9 +1402,9 @@ Usa exatamente esta estrutura:
                     else if(avgEffort>=6&&avgPain<=2){sugestao="✅ Bom equilíbrio esforço/dor — manter progressão atual do Método igfit";cor=G;}
                     else sugestao="📊 Monitorizar mais aulas para sugestão de progressão";
                     return sugestao?(
-                      <div style={{background:cor==="red"?RLL:cor===G?GL:ALL,border:`1px solid ${cor==="red"?"#fca5a5":cor===G?"#86efac":"#fcd34d"}`,borderRadius:10,padding:"12px 16px",marginTop:4}}>
+                      <div style={{background:cor===RED?RLL:cor===G?GL:ALL,border:`1px solid ${cor===RED?"#fca5a5":cor===G?"#86efac":"#fcd34d"}`,borderRadius:10,padding:"12px 16px",marginTop:4}}>
                         <div style={{fontSize:11,fontWeight:700,color:GR,letterSpacing:".5px",marginBottom:6}}>💡 SUGESTÃO DE PROGRESSÃO — MÉTODO IGFIT</div>
-                        <div style={{fontSize:13,fontWeight:500,color:cor==="red"?RED:cor===G?GD:"#713f12"}}>{sugestao}</div>
+                        <div style={{fontSize:13,fontWeight:500,color:cor===RED?RED:cor===G?GD:"#713f12"}}>{sugestao}</div>
                         <div style={{fontSize:11,color:GR,marginTop:6}}>Médias últimas 3 aulas: Esforço {avgEffort}/10 · Dor {avgPain}/10 · Energia {avgEnergy}/10</div>
                       </div>
                     ):null;
@@ -1559,7 +1583,7 @@ Usa exatamente esta estrutura:
                                       try{
                                         await fetch(`${SB}/rest/v1/igfit_class_logs?id=eq.${ev.id}`,{method:"DELETE",headers:hdrs(tok)});
                                         await load();
-                                        setCalEvent(p=>({...p,events:p.events.filter(ev=>ev.id!==ev.id)}));
+                                        setCalEvent(p=>({...p,events:p.events.filter(x=>x.id!==ev.id)}));
                                       }catch(ex){setErr(ex.message);}
                                       setLoading(false);
                                     }}>🗑️</button>
@@ -1628,10 +1652,10 @@ Usa exatamente esta estrutura:
                           <button style={{...BTN,opacity:loading?.6:1}} disabled={loading} onClick={async()=>{
                             setLoading(true);
                             try{
-                              await sbPost("igfit_class_logs",{student_id:s.id,session_date:calEvent.date,training:calFormData.training,status:"Agendada",effort:null,pain:null,energy:null,notes:`🕐 ${calFormData.time}${calFormData.notes?" — "+calFormData.notes:""}` },tok);
+                              const[row]=await sbPost("igfit_class_logs",{student_id:s.id,session_date:calEvent.date,training:calFormData.training,status:"Agendada",effort:null,pain:null,energy:null,notes:`🕐 ${calFormData.time}${calFormData.notes?" — "+calFormData.notes:""}` },tok);
                               await load();
-                              // Refresh calEvent events
-                              setCalEvent(p=>({...p,events:[...p.events,{rawDate:calEvent.date,training:calFormData.training,status:"Agendada",time:calFormData.time,notes:calFormData.notes}]}));
+                              // Refresh calEvent events (com id real para editar/apagar funcionar)
+                              setCalEvent(p=>({...p,events:[...p.events,{id:row?.id,rawDate:calEvent.date,training:calFormData.training,status:"Agendada",time:calFormData.time,notes:calFormData.notes}]}));
                               setShowCalForm(false);
                             }catch(err){setErr(err.message);}
                             setLoading(false);
@@ -1667,6 +1691,15 @@ Usa exatamente esta estrutura:
       </div>
     );
   }
+
+  // Fallback — view "student" sem aluno carregado (ex: após apagar ou refresh)
+  if(view==="student")return(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f8fafc",flexDirection:"column",gap:14}}>
+      <div style={{fontSize:42}}>{loading?"⏳":"🔍"}</div>
+      <div style={{color:GR,fontSize:14}}>{loading?"A carregar aluno...":"Aluno não encontrado."}</div>
+      {!loading&&<button style={BTN} onClick={()=>{setView("dashboard");setSid(null);}}>← Voltar ao painel</button>}
+    </div>
+  );
 
   return null;
 }
