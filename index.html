@@ -517,6 +517,8 @@ function App(){
   const[calFormData,setCalFormData]=useState({time:"09:00",training:"Treino A",notes:""});
   const[emailSending,setEmailSending]=useState(false);
   const[emailMsg,setEmailMsg]=useState("");
+  const[q,setQ]=useState("");
+  const[statusFilter,setStatusFilter]=useState("todos");
 
   const s=students.find(x=>x.id===sid);
   const tok=sess?.access_token;
@@ -802,6 +804,18 @@ Usa exatamente esta estrutura:
     const initials=n=>n.split(" ").slice(0,2).map(x=>x[0]||"").join("").toUpperCase();
     const todayISO=(d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`)(new Date());
     const aulasHoje=students.reduce((a,x)=>a+(x.classLogs||[]).filter(l=>l.rawDate===todayISO).length,0);
+    const norm=t=>(t||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+    const qn=norm(q.trim());
+    const filtered=students.filter(st=>{
+      const matchQ=!qn||norm(st.name).includes(qn);
+      const matchS=statusFilter==="todos"
+        ?true
+        :statusFilter==="alerta"
+          ?st.alerts.some(a=>a.type!=="info")
+          :st.status===statusFilter;
+      return matchQ&&matchS;
+    });
+    const STATUS_CHIPS=[["todos","Todos"],["ativo","Ativos"],["em evolução","Em evolução"],["avaliação pendente","Avaliação pendente"],["atenção","Atenção"],["alerta","Com alertas"]];
     return(
       <div style={{minHeight:"100vh",background:"#f8fafc"}}>
         <div style={{background:"#fff",borderBottom:"1px solid #e2e8f0",position:"sticky",top:0,zIndex:10,boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
@@ -875,9 +889,24 @@ Usa exatamente esta estrutura:
 
           <div style={C}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-              <div style={{fontSize:14,fontWeight:700}}>Alunos ({students.length})</div>
+              <div style={{fontSize:14,fontWeight:700}}>Alunos ({qn||statusFilter!=="todos"?`${filtered.length}/${students.length}`:students.length})</div>
               <div style={{fontSize:11,color:GR}}>Clica para abrir perfil</div>
             </div>
+            {students.length>0&&(
+              <>
+                <div style={{position:"relative",marginBottom:10}}>
+                  <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:14,color:"#94a3b8"}}>🔍</span>
+                  <input style={{...INP,paddingLeft:34}} value={q} onChange={e=>setQ(e.target.value)} placeholder="Pesquisar aluno por nome..."/>
+                  {q&&<button onClick={()=>setQ("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"#94a3b8",fontSize:16,cursor:"pointer",lineHeight:1}}>✕</button>}
+                </div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+                  {STATUS_CHIPS.map(([k,l])=>{
+                    const active=statusFilter===k;
+                    return <button key={k} onClick={()=>setStatusFilter(k)} style={{borderRadius:20,padding:"4px 12px",fontSize:12,fontWeight:active?700:500,cursor:"pointer",border:active?`1.5px solid ${G}`:"1px solid #e2e8f0",background:active?GL:"#fff",color:active?GD:GR,whiteSpace:"nowrap"}}>{l}</button>;
+                  })}
+                </div>
+              </>
+            )}
             {loading&&students.length===0&&<div style={{textAlign:"center",color:GR,padding:"2.5rem"}}>A carregar alunos...</div>}
             {!loading&&students.length===0&&(
               <div style={{textAlign:"center",padding:"2.5rem"}}>
@@ -886,11 +915,18 @@ Usa exatamente esta estrutura:
                 <button style={BTN} onClick={()=>{setStep(0);setNs(EMPTY);setView("new-student");}}>+ Criar primeiro aluno</button>
               </div>
             )}
-            {students.map((st,i)=>{
+            {students.length>0&&filtered.length===0&&(
+              <div style={{textAlign:"center",padding:"2rem 1rem",color:GR}}>
+                <div style={{fontSize:32,marginBottom:8}}>🔍</div>
+                <div style={{marginBottom:12}}>Nenhum aluno corresponde aos filtros.</div>
+                <button style={BG} onClick={()=>{setQ("");setStatusFilter("todos");}}>Limpar filtros</button>
+              </div>
+            )}
+            {filtered.map((st,i)=>{
               const c=sc(st.status);
               const initials=st.name.split(" ").slice(0,2).map(x=>x[0]||"").join("").toUpperCase();
               return(
-                <div key={st.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:i<students.length-1?"1px solid #f8fafc":"none",cursor:"pointer"}} onClick={()=>{setSid(st.id);setTab("overview");setView("student");setAiOut("");}}>
+                <div key={st.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:i<filtered.length-1?"1px solid #f8fafc":"none",cursor:"pointer"}} onClick={()=>{setSid(st.id);setTab("overview");setView("student");setAiOut("");}}>
                   <div style={{width:42,height:42,borderRadius:"50%",background:GL,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,color:GD,flexShrink:0}}>{initials}</div>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:14,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{st.name}</div>
@@ -1053,7 +1089,7 @@ Usa exatamente esta estrutura:
 
   // ═══ DETALHE ALUNO ════════════════════════════════════════
   if(view==="student"&&s){
-    const TABS=[{k:"overview",l:"Visão Geral"},{k:"diagnosis",l:"Diagnóstico IA"},{k:"plan",l:"Plano"},{k:"classes",l:"Aulas"},{k:"calendar",l:"📅 Calendário"},{k:"evolution",l:"Evolução"},{k:"report",l:"Relatório"}];
+    const TABS=[{k:"overview",l:"Visão Geral"},{k:"diagnosis",l:"Diagnóstico IA"},{k:"plan",l:"Plano"},{k:"classes",l:"Aulas"},{k:"calendar",l:"📅 Calendário"},{k:"evolution",l:"📏 Medidas"},{k:"report",l:"Relatório"}];
     const sRisk=s.anamnesis&&(s.anamnesis.chestPain||s.anamnesis.heartProblems||s.anamnesis.dizziness||s.anamnesis.recentFalls);
     const initials=s.name.split(" ").slice(0,2).map(x=>x[0]||"").join("").toUpperCase();
     return(
@@ -1346,7 +1382,7 @@ Usa exatamente esta estrutura:
           {tab==="evolution"&&(
             <div>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-                <div style={{fontSize:15,fontWeight:700}}>Evolução</div>
+                <div style={{fontSize:15,fontWeight:700}}>Medidas & Evolução</div>
                 <button style={BS} onClick={()=>setShowM(!showM)}>+ Nova medição</button>
               </div>
               {showM&&(
