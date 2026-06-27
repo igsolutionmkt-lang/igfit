@@ -344,7 +344,7 @@ function generateAlerts(student){
 function fromDB(row){
   const a=row.igfit_anamnesis?.[0]||{};
   const measurements=(row.igfit_measurements||[])
-    .map(m=>({id:m.id,label:new Date(m.measured_at+"T12:00:00").toLocaleDateString("pt-PT",{day:"2-digit",month:"2-digit"}),rawDate:m.measured_at,weight:+m.weight,waist:+m.waist,abdomen:+m.abdomen}))
+    .map(m=>({id:m.id,label:new Date(m.measured_at+"T12:00:00").toLocaleDateString("pt-PT",{day:"2-digit",month:"2-digit"}),rawDate:m.measured_at,weight:+m.weight,waist:+m.waist,abdomen:+m.abdomen,hip:m.hip!=null?+m.hip:null,chest:m.chest!=null?+m.chest:null,rightArm:m.right_arm!=null?+m.right_arm:null,leftArm:m.left_arm!=null?+m.left_arm:null,rightThigh:m.right_thigh!=null?+m.right_thigh:null,leftThigh:m.left_thigh!=null?+m.left_thigh:null,rightCalf:m.right_calf!=null?+m.right_calf:null,leftCalf:m.left_calf!=null?+m.left_calf:null,notes:m.notes||""}))
     .sort((a,b)=>new Date(a.rawDate)-new Date(b.rawDate));
   const classLogs=(row.igfit_class_logs||[])
     .map(l=>({id:l.id,date:new Date(l.session_date+"T12:00:00").toLocaleDateString("pt-PT",{day:"2-digit",month:"2-digit"}),rawDate:l.session_date,training:l.training,status:l.status,effort:l.effort,pain:l.pain,energy:l.energy,notes:l.notes}))
@@ -505,7 +505,7 @@ function App(){
   const[ns,setNs]=useState(EMPTY);
   const[newLog,setNewLog]=useState({date:"",training:"Treino A",status:"Concluído",effort:7,pain:1,energy:8,notes:""});
   const[showLog,setShowLog]=useState(false);
-  const[newM,setNewM]=useState({weight:"",waist:"",abdomen:""});
+  const[newM,setNewM]=useState({weight:"",waist:"",abdomen:"",hip:"",chest:"",rightArm:"",leftArm:"",rightThigh:"",leftThigh:"",rightCalf:"",leftCalf:"",notes:""});
   const[showM,setShowM]=useState(false);
   const[err,setErr]=useState("");
   const[showEdit,setShowEdit]=useState(false);
@@ -700,8 +700,9 @@ Usa exatamente esta estrutura:
   async function saveMeas(){
     if(!s||!newM.weight)return;setLoading(true);
     try{
-      await sbPost("igfit_measurements",{student_id:s.id,measured_at:new Date().toISOString().split("T")[0],weight:parseFloat(newM.weight)||null,waist:parseFloat(newM.waist)||null,abdomen:parseFloat(newM.abdomen)||null},tok);
-      await load();setShowM(false);setNewM({weight:"",waist:"",abdomen:""});
+      const num=v=>{const n=parseFloat(v);return isNaN(n)?null:n;};
+      await sbPost("igfit_measurements",{student_id:s.id,measured_at:new Date().toISOString().split("T")[0],weight:num(newM.weight),waist:num(newM.waist),abdomen:num(newM.abdomen),hip:num(newM.hip),chest:num(newM.chest),right_arm:num(newM.rightArm),left_arm:num(newM.leftArm),right_thigh:num(newM.rightThigh),left_thigh:num(newM.leftThigh),right_calf:num(newM.rightCalf),left_calf:num(newM.leftCalf),notes:(newM.notes||"").trim()||null},tok);
+      await load();setShowM(false);setNewM({weight:"",waist:"",abdomen:"",hip:"",chest:"",rightArm:"",leftArm:"",rightThigh:"",leftThigh:"",rightCalf:"",leftCalf:"",notes:""});
     }catch(e){setErr(e.message);}
     setLoading(false);
   }
@@ -1351,11 +1352,12 @@ Usa exatamente esta estrutura:
               {showM&&(
                 <div style={{...C,marginBottom:14}}>
                   <div style={{fontSize:14,fontWeight:700,marginBottom:14}}>Registar medição — {new Date().toLocaleDateString("pt-PT")}</div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-                    {[["weight","Peso (kg) *"],["waist","Cintura (cm)"],["abdomen","Abdómen (cm)"]].map(([k,l])=>(
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:10}}>
+                    {[["weight","Peso (kg) *"],["waist","Cintura (cm)"],["abdomen","Abdómen (cm)"],["hip","Anca (cm)"],["chest","Peito (cm)"],["rightArm","Braço D (cm)"],["leftArm","Braço E (cm)"],["rightThigh","Coxa D (cm)"],["leftThigh","Coxa E (cm)"],["rightCalf","Gémeo D (cm)"],["leftCalf","Gémeo E (cm)"]].map(([k,l])=>(
                       <div key={k}><label style={LBL}>{l}</label><input style={INP} type="number" step="0.1" value={newM[k]} onChange={e=>setNewM(p=>({...p,[k]:e.target.value}))}/></div>
                     ))}
                   </div>
+                  <div style={{marginTop:10}}><label style={LBL}>Notas</label><textarea style={{...INP,minHeight:60,resize:"vertical",fontFamily:"inherit"}} value={newM.notes} onChange={e=>setNewM(p=>({...p,notes:e.target.value}))} placeholder="Observações sobre esta medição (opcional)"/></div>
                   <div style={{marginTop:12,display:"flex",gap:8}}>
                     <button style={{...BTN,opacity:loading?.6:1}} onClick={saveMeas} disabled={loading||!newM.weight}>{loading?"A guardar...":"✓ Guardar"}</button>
                     <button style={BG} onClick={()=>setShowM(false)}>Cancelar</button>
